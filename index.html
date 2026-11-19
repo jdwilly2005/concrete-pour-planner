@@ -116,6 +116,8 @@
     border: 1px solid var(--line); background: #fff; color: var(--ink);
   }
   button:hover { background: #F9FAFB; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible, .field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { background: #D04F0A; }
 
@@ -916,6 +918,7 @@ function renderEmpty() {
   document.getElementById("orderDetail").textContent = "No slab yet";
   document.getElementById("orderText").textContent =
     "Draw a slab on the map or type a length and width to see the order.";
+  document.getElementById("copyBtn").disabled = true;
   document.getElementById("mapWarning").hidden = true;
   document.getElementById("slabSource").textContent = "";
   drawTimeline(null);
@@ -950,6 +953,7 @@ function render() {
   document.getElementById("finishDetail").textContent = `First truck ${fmtClockFull(plan.startMin)}`;
 
   document.getElementById("orderText").textContent = orderText(plan, inp);
+  document.getElementById("copyBtn").disabled = false;
   drawTimeline(plan);
   return plan;
 }
@@ -974,6 +978,31 @@ for (const id of [...Object.keys(INPUT_LIMITS), "start"]) {
     render();
   });
 }
+
+// ---------- Copy the order text ----------
+const copyBtn = document.getElementById("copyBtn");
+function flashCopy(label) {
+  copyBtn.textContent = label;
+  clearTimeout(flashCopy.timer);
+  flashCopy.timer = setTimeout(() => { copyBtn.textContent = "Copy"; }, 1800);
+}
+copyBtn.addEventListener("click", async () => {
+  const text = document.getElementById("orderText").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    flashCopy("Copied ✓");
+  } catch {
+    // Older browsers or blocked clipboard: select the text so Cmd/Ctrl+C works.
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById("orderText"));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    flashCopy(ok ? "Copied ✓" : "Press Ctrl+C");
+  }
+});
 
 // For checking validation case 2 from the console:
 //   setDrawnSlab([[40.25, -111.65], [40.251, -111.65], [40.251, -111.649], [40.25, -111.649]])
