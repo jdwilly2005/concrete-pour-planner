@@ -168,16 +168,15 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
-  .stat.third .value { font-size: clamp(22px, 2.3vw, 34px); }
+  .stat.third .value { font-size: clamp(22px, 2.3vw, 34px); overflow: hidden; text-overflow: ellipsis; }
   .stat .value small { font-size: 16px; font-weight: 600; color: var(--muted); margin-left: 4px; }
   .stat .detail { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .stat.hero { border-top: 4px solid var(--accent); }
-  .stat.hero .value { color: var(--accent); font-size: 40px; }
+  .stat.hero .value { color: var(--accent); font-size: clamp(26px, 2.8vw, 40px); }
   @media (max-width: 600px) {
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stat.wide { grid-column: span 2; }
     .stat.third { grid-column: span 1; }
-    .stat.third:last-child { grid-column: span 2; }
     .stat .value { font-size: 28px; }
   }
 
@@ -297,21 +296,47 @@
           </div>
         </div>
       </div>
+
+      <div class="field-group">
+        <h3>Cost</h3>
+        <div class="fields">
+          <div class="field">
+            <label for="price">Concrete price</label>
+            <div class="input-wrap"><input id="price" type="number" min="50" max="500" step="1" value="165"><span class="unit">$/cy</span></div>
+            <div class="range">$50 to $500 per cy</div>
+          </div>
+          <div class="field">
+            <label for="shortThreshold">Short-load threshold</label>
+            <div class="input-wrap"><input id="shortThreshold" type="number" min="0" max="12" step="0.5" value="6"><span class="unit">cy</span></div>
+            <div class="range">0 to 12 cy (0 = no fee)</div>
+          </div>
+          <div class="field">
+            <label for="shortFee">Short-load fee, per load</label>
+            <div class="input-wrap"><input id="shortFee" type="number" min="0" max="500" step="1" value="100"><span class="unit">$</span></div>
+            <div class="range">$0 to $500</div>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 
   <!-- RIGHT: results -->
   <div class="col">
     <section class="stats">
-      <div class="card stat hero wide">
+      <div class="card stat hero third">
         <div class="label">Concrete to order</div>
         <div class="value" id="orderVal">47.0<small>cy</small></div>
         <div class="detail" id="orderDetail">44.44 cy net · 46.67 cy with 5% waste</div>
       </div>
-      <div class="card stat wide">
+      <div class="card stat third">
         <div class="label">Truckloads</div>
         <div class="value" id="loadsVal">5</div>
         <div class="detail" id="loadsDetail">4 × 10 cy + 1 × 7 cy</div>
+      </div>
+      <div class="card stat third">
+        <div class="label">Estimated cost</div>
+        <div class="value" id="costVal">$7,755</div>
+        <div class="detail" id="costDetail">47.0 cy × $165 · no short loads</div>
       </div>
       <div class="card stat third">
         <div class="label">Trucks in rotation</div>
@@ -485,8 +510,18 @@ const PourCalc = (() => {
     };
   }
 
+  // Cost estimate. A load is short if it is under the threshold (a load
+  // exactly at the threshold is not short; a threshold of 0 turns it off).
+  // Returns dollars.
+  function costEstimate(orderCy, loadSizes, pricePerCy, shortThresholdCy, shortLoadFee) {
+    const concreteCost = orderCy * pricePerCy;
+    const shortLoads = loadSizes.filter(cy => cy < shortThresholdCy - EPS).length;
+    const shortFees = shortLoads * shortLoadFee;
+    return { concreteCost, shortLoads, shortFees, total: concreteCost + shortFees };
+  }
+
   return { roundUpTo, polygonAreaFt2, rectAreaFt2, rectCorners, edgesCross,
-           volumes, truckloads, unloadMinutes, planPour };
+           volumes, truckloads, unloadMinutes, planPour, costEstimate };
 })();
 </script>
 
@@ -504,14 +539,19 @@ L.tileLayer(
 ).addTo(map);
 
 // Leaflet measures its container when it is created. If the page was still
-// laying out (or hidden), shapes end up in the wrong place, so re-measure.
+// laying out (or hidden), shapes end up in the wrong place, so re-measure
+// whenever the map's box changes size. Leaflet's own re-centering is
+// animated and drifts when several resizes arrive in a row, so instead
+// remember the center the map should have and put it back exactly.
+let mapCenter = L.latLng(CENTER);
+map.on("moveend", () => { mapCenter = map.getCenter(); });
 function refitMap() {
-  map.invalidateSize();
-  map.setView(CENTER, map.getZoom(), { animate: false });
+  const keep = mapCenter;
+  map.invalidateSize({ pan: false });
+  map.setView(keep, map.getZoom(), { animate: false });
 }
 window.addEventListener("load", refitMap);
-window.addEventListener("resize", () => map.invalidateSize());
-new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById("map"));
+new ResizeObserver(refitMap).observe(document.getElementById("map"));
 
 // =====================================================================
 // TRUCK TIMELINE (drawing only; the schedule comes from PourCalc.planPour)
@@ -633,8 +673,13 @@ const INPUT_LIMITS = {
   capacity:  { min: 1, max: 12,   def: 10, unit: "cy" },
   travel:    { min: 5, max: 120,  def: 20, unit: "min" },
   rate:      { min: 5, max: 150,  def: 30, unit: "cy/hr" },
-  washout:   { min: 0, max: 30,   def: 10, unit: "min" }
+  washout:   { min: 0, max: 30,   def: 10, unit: "min" },
+  price:          { min: 50, max: 500, def: 165, unit: "$/cy", show: v => `$${v}/cy` },
+  shortThreshold: { min: 0,  max: 12,  def: 6,   unit: "cy" },
+  shortFee:       { min: 0,  max: 500, def: 100, unit: "$",    show: v => `$${v}` }
 };
+// How a value reads in a clamp note, e.g. "24 in" or "$500/cy".
+const showLimit = (lim, v) => (lim.show ? lim.show(v) : `${v} ${lim.unit}`);
 
 // Add an (initially empty) note line under each number box.
 for (const id of Object.keys(INPUT_LIMITS)) {
@@ -658,13 +703,13 @@ function readInput(id) {
   let value = raw, msg = "";
   if (!Number.isFinite(raw)) {
     value = lim.def;
-    msg = `Enter a number. Using ${lim.def} ${lim.unit}.`;
+    msg = `Enter a number. Using ${showLimit(lim, lim.def)}.`;
   } else if (raw < lim.min) {
     value = lim.min;
-    msg = `Minimum is ${lim.min} ${lim.unit}. Using ${lim.min}.`;
+    msg = `Minimum is ${showLimit(lim, lim.min)}. Using ${lim.min}.`;
   } else if (raw > lim.max) {
     value = lim.max;
-    msg = `Maximum is ${lim.max} ${lim.unit}. Using ${lim.max}.`;
+    msg = `Maximum is ${showLimit(lim, lim.max)}. Using ${lim.max}.`;
   }
   note.textContent = msg || clampNotes[id] || "";
   return { value, msg };
@@ -686,7 +731,10 @@ function readInputs() {
     travelMin: inputValue("travel"),
     rateCyPerHr: inputValue("rate"),
     washoutMin: inputValue("washout"),
-    startMin: readStartMin()
+    startMin: readStartMin(),
+    pricePerCy: inputValue("price"),
+    shortThresholdCy: inputValue("shortThreshold"),
+    shortLoadFee: inputValue("shortFee")
   };
 }
 
@@ -694,6 +742,13 @@ function readInputs() {
 const fmtNum = (v, d) => v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtLoad = cy => (Math.abs(cy - Math.round(cy)) < 1e-9 ? String(Math.round(cy)) : fmtNum(cy, 1));
 const fmtMin = m => String(Math.round(m));
+// Dollars to the nearest dollar ("$7,755"). keepCents shows cents only
+// when the value has them (a price of $165.50).
+const fmtMoney = (v, keepCents = false) =>
+  "$" + v.toLocaleString("en-US", {
+    minimumFractionDigits: keepCents && Math.round(v * 100) % 100 !== 0 ? 2 : 0,
+    maximumFractionDigits: keepCents ? 2 : 0
+  });
 
 // Clock time: { time: "8:34", ampm: "AM", day: "" or " (+1 day)" }
 function clockParts(min) {
@@ -907,12 +962,12 @@ function updateSlabDisplay(areaFt2, plan) {
 
 // Cards and order text when there is no slab to plan.
 function renderEmpty() {
-  for (const id of ["orderVal", "loadsVal", "trucksVal", "durationVal", "finishVal"]) {
+  for (const id of ["orderVal", "loadsVal", "costVal", "trucksVal", "durationVal", "finishVal"]) {
     const el = document.getElementById(id);
     el.textContent = "—";
     el.classList.add("empty");
   }
-  for (const id of ["orderDetail", "loadsDetail", "trucksDetail", "durationDetail", "finishDetail"]) {
+  for (const id of ["orderDetail", "loadsDetail", "costDetail", "trucksDetail", "durationDetail", "finishDetail"]) {
     document.getElementById(id).textContent = "";
   }
   document.getElementById("orderDetail").textContent = "No slab yet";
@@ -938,6 +993,17 @@ function render() {
 
   document.getElementById("loadsVal").textContent = plan.loadCount.toLocaleString("en-US");
   document.getElementById("loadsDetail").textContent = loadsBreakdown(plan, "×");
+
+  const cost = PourCalc.costEstimate(plan.orderCy, plan.loadSizes,
+    inp.pricePerCy, inp.shortThresholdCy, inp.shortLoadFee);
+  const costEl = document.getElementById("costVal");
+  costEl.textContent = fmtMoney(cost.total);
+  costEl.title = fmtMoney(cost.total);
+  const concretePart = `${fmtNum(plan.orderCy, 1)} cy × ${fmtMoney(inp.pricePerCy, true)}`;
+  document.getElementById("costDetail").textContent = cost.shortLoads === 0
+    ? `${concretePart} · no short loads`
+    : `${concretePart} + ${fmtMoney(cost.shortFees)} short-load fee${cost.shortLoads > 1 ? "s" : ""} ` +
+      `(${cost.shortLoads.toLocaleString("en-US")} load${cost.shortLoads > 1 ? "s" : ""})`;
 
   document.getElementById("trucksVal").textContent = plan.trucks.toLocaleString("en-US");
   document.getElementById("trucksDetail").textContent = `${fmtMin(plan.roundTripMin)} min round trip`;

@@ -49,3 +49,8 @@
 - **Asked:** Plan a feature.
 - **Changed:** Proposed four features (cost estimate, working-time check, pump truck, plant truck limit); chose the cost estimate. Decided: flat fee per short load, defaults $165/cy / 6 cy threshold / $100 fee, cost on a sixth card only (not in the order text). spec.md only: three cost inputs, cost equations (fee on every load under the threshold, 0 turns it off), two rows of three cards, validation case 6 (6a-6d, worked by hand), "costs" narrowed in Out of scope, Resolved notes entry. Nothing built yet.
 - **Worked?** Yes (planning only).
+
+## 11. Build feature 1: cost estimate
+- **Asked:** Build it now.
+- **Changed:** index.html only (spec was already updated): `PourCalc.costEstimate` (pure, separate from planPour so the schedule math is untouched); a "Cost" input group (price, short-load threshold, fee) with clamping and dollar-formatted notes; an "Estimated cost" card, with the cards now in two rows of three; cost card cleared in the empty state. Also fixed a map bug found while checking the layout: the map could open off-center at desktop width because Leaflet's animated re-centering drifted during load-time resizes; it now restores the intended center exactly after each resize. Results in 02_validation/feature1_cost_results.md.
+- **Worked?** Yes. Case 6a-6d match ($7,755, $925, $8,955, $825); cases 1-5 unchanged; layout fine at 1280 px and 375 px. A fresh page load at phone size could not be re-run in the preview pane after the map fix.
