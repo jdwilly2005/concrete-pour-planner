@@ -47,6 +47,12 @@ planning a slab pour and calling in the order to the batch plant.
 | One-way travel time from the batch plant | min | 5 to 120 | 1 | 20 |
 | Placement rate the crew can sustain | cy/hr | 5 to 150 | 1 | 30 |
 | Washout and reload time at the plant | min | 0 to 30 | 1 | 10 |
+| Concrete price | $/cy | 50 to 500 | 1 | 165 |
+| Short-load threshold (0 turns the fee off) | cy | 0 to 12 | 0.5 | 6 |
+| Short-load fee, per short load | $ | 0 to 500 | 1 | 100 |
+
+  The three cost inputs are in their own "Cost" group, below the truck
+  and crew inputs.
 
 - Time the first truck should arrive: a time picker, default 7:00 AM.
 
@@ -74,6 +80,15 @@ planning a slab pour and calling in the order to the batch plant.
 - Trucks needed in rotation = round trip / full-truck unload time, rounded
   up (but no more than the number of loads). Loads are assigned to the
   trucks in turn: truck 1, truck 2, and so on, then truck 1 again.
+- Cost estimate:
+  - Concrete cost ($) = volume to order x concrete price.
+  - A load is short if its size is less than the short-load threshold
+    (a load exactly at the threshold is not short; a threshold of 0 means
+    no load is short). Usually only the last load can be short, but every
+    load is short if the truck capacity is under the threshold.
+  - Short-load fees ($) = number of short loads x short-load fee.
+  - Estimated cost ($) = concrete cost + short-load fees.
+  - Dollars are shown rounded to the nearest dollar, with commas.
 - Finish time = arrival of the last load + unload time for the last load.
 - Pour duration = finish time - start.
 - Rounding up (volume to order, truckloads, trucks in rotation) ignores
@@ -91,9 +106,14 @@ planning a slab pour and calling in the order to the batch plant.
 ## Outputs
 - The slab drawn on the map with a label showing its area (ft^2) and
   volume to order (cy).
-- Summary cards: concrete to order (cy), truckloads, trucks in rotation,
-  pour duration, and finish time. The "Concrete to order" card has a
-  small detail line, for example "44.44 cy net · 46.67 cy with 5% waste".
+- Summary cards, in two rows of three: concrete to order (cy),
+  truckloads, and estimated cost; then trucks in rotation, pour
+  duration, and finish time. The "Concrete to order" card has a small
+  detail line, for example "44.44 cy net · 46.67 cy with 5% waste". The
+  "Estimated cost" card's detail line gives the concrete cost and the
+  short-load fees, for example "47.0 cy × $165 · no short loads" or
+  "5.0 cy × $165 + $100 short-load fee (1 load)". The cost is not part of
+  the order summary text.
 - A truck schedule as a timeline (like a Gantt chart), drawn as inline
   SVG with no chart library:
   - One row per load, labeled like "Load 3 · Truck 3 · 10 cy".
@@ -162,9 +182,20 @@ planning a slab pour and calling in the order to the batch plant.
    at 5 loads, so 5 trucks in rotation. Arrivals and finish are the same
    as case 1. Then type 30 in for thickness: it is clamped to 24 in and
    a note appears next to the box.
+6. Cost estimate, default price $165/cy, threshold 6 cy, fee $100:
+   - 6a. Case 1: loads 10, 10, 10, 10, 7 (7 cy is not short). Concrete
+     47.0 x $165 = $7,755; no short loads; estimated cost $7,755.
+   - 6b. Case 3: one 5 cy load, which is short. Concrete 5.0 x $165 =
+     $825; fee $100; estimated cost $925.
+   - 6c. Case 1 with 4 cy trucks: 12 loads (eleven of 4 cy and one of
+     3 cy), all short. Concrete $7,755; fees 12 x $100 = $1,200;
+     estimated cost $8,955.
+   - 6d. Case 3 with threshold 0: no short loads; estimated cost $825.
 
 ## Out of scope
-- Reinforcement, finishing crews, pump trucks, weather, and costs.
+- Reinforcement, finishing crews, pump trucks, and weather.
+- Costs other than the concrete price and short-load fees (delivery,
+  fuel surcharges, taxes, labor).
 - Saving plans.
 - Address search (the user pans and zooms the map by hand).
 
@@ -217,3 +248,6 @@ sections above:
 - Drawn outlines need 3+ corners; crossing edges show a warning.
 - Added validation cases 4 (floating-point rounding) and 5 (rotation cap
   and clamping).
+- Feature 1 (Step 6): cost estimate. Flat fee per short load (not per
+  missing yard); defaults $165/cy, 6 cy threshold, $100 fee; shown on a
+  sixth summary card only, not in the order text. Validation case 6.

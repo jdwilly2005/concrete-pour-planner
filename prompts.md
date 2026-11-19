@@ -44,3 +44,8 @@
 - **Asked:** Build stage 5.
 - **Changed:** index.html: wired the Copy button (clipboard API, with a select-and-copy fallback and "Copied ✓" / "Press Ctrl+C" feedback; disabled when there is no slab); disabled-button and keyboard-focus styles. The "+1 day" display and no-slab state were already built in stages 2-4. No spec changes needed. Results in 02_validation/stage5_results.md.
 - **Worked?** Yes. All validation cases 1-5 match on the finished app, Copy works (the preview pane blocks the clipboard API, so the fallback path was the one exercised), late start shows "+1 day", Clear shows the hints, and the layout is correct at 1280 px and 375 px with no sideways scrolling and no console messages. Finger drawing on a real phone is untested.
+
+## 10. Plan feature 1 (Step 6): cost estimate
+- **Asked:** Plan a feature.
+- **Changed:** Proposed four features (cost estimate, working-time check, pump truck, plant truck limit); chose the cost estimate. Decided: flat fee per short load, defaults $165/cy / 6 cy threshold / $100 fee, cost on a sixth card only (not in the order text). spec.md only: three cost inputs, cost equations (fee on every load under the threshold, 0 turns it off), two rows of three cards, validation case 6 (6a-6d, worked by hand), "costs" narrowed in Out of scope, Resolved notes entry. Nothing built yet.
+- **Worked?** Yes (planning only).
