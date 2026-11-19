@@ -24,3 +24,8 @@
 - **Asked:** Build stage 1 (layout mockup).
 - **Changed:** Created index.html: header, Leaflet 1.9.4 map with Esri World Imagery centered on BYU and a placeholder 40 x 60 ft slab with label, Draw slab / Clear buttons and hint, all inputs as number boxes with ranges, five summary cards, an SVG truck timeline drawn from hard-coded case 1 data (legend, finish line, faded segments after finish, hover/tap tooltips), and the order summary with a Copy button (not wired yet). A banner marks it as a mockup.
 - **Worked?** Yes, after fixes found in the browser: the slab outline was drawn off-screen because Leaflet measured the map before layout finished (added invalidateSize on load/resize); the Finish label and last axis time were clipped; "1 h 34 min" wrapped; on a phone the timeline scrolled sideways (now fits, with shorter row labels and 30-min ticks). No console errors on desktop or phone width.
+
+## 6. Build stage 2: calculations with a typed slab
+- **Asked:** Build stage 2.
+- **Changed:** spec.md first: load sizes shown without a decimal when whole (the old rounding rule contradicted the order template), and wording for a one-load order. index.html: a separate `PourCalc` script of pure functions (roundUpTo with 1e-9 tolerance, polygonAreaFt2, rectAreaFt2, volumes, truckloads, unloadMinutes, planPour); a wiring script that reads and clamps the inputs, runs planPour, and fills the five cards and the order text on every keystroke. Banner updated. Map slab and timeline are still placeholders (stages 3 and 4). Results saved to 02_validation/stage2_results.md.
+- **Worked?** Yes. Cases 1 to 5 all match. One bug found and fixed: a clamp note disappeared as soon as any other box was edited; notes now stay until that box is edited again.

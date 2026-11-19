@@ -195,7 +195,7 @@
 </head>
 <body>
 
-<div class="mockup-banner">Stage 1 mockup: all values are placeholders (validation case 1). Nothing is calculated yet.</div>
+<div class="mockup-banner">In progress: the summary cards and order text are live (from the typed length and width). The map slab and truck timeline are still placeholders.</div>
 
 <header>
   <div class="logo">CP</div>
@@ -283,28 +283,28 @@
     <section class="stats">
       <div class="card stat hero wide">
         <div class="label">Concrete to order</div>
-        <div class="value">47.0<small>cy</small></div>
-        <div class="detail">44.44 cy net · 46.67 cy with 5% waste</div>
+        <div class="value" id="orderVal">47.0<small>cy</small></div>
+        <div class="detail" id="orderDetail">44.44 cy net · 46.67 cy with 5% waste</div>
       </div>
       <div class="card stat wide">
         <div class="label">Truckloads</div>
-        <div class="value">5</div>
-        <div class="detail">4 × 10 cy + 1 × 7 cy</div>
+        <div class="value" id="loadsVal">5</div>
+        <div class="detail" id="loadsDetail">4 × 10 cy + 1 × 7 cy</div>
       </div>
       <div class="card stat third">
         <div class="label">Trucks in rotation</div>
-        <div class="value">4</div>
-        <div class="detail">70 min round trip</div>
+        <div class="value" id="trucksVal">4</div>
+        <div class="detail" id="trucksDetail">70 min round trip</div>
       </div>
       <div class="card stat third">
         <div class="label">Pour duration</div>
-        <div class="value">1 h 34<small>min</small></div>
-        <div class="detail">One truck every 20 min</div>
+        <div class="value" id="durationVal">1 h 34<small>min</small></div>
+        <div class="detail" id="durationDetail">One truck every 20 min</div>
       </div>
       <div class="card stat third">
         <div class="label">Finish time</div>
-        <div class="value">8:34<small>AM</small></div>
-        <div class="detail">First truck 7:00 AM</div>
+        <div class="value" id="finishVal">8:34<small>AM</small></div>
+        <div class="detail" id="finishDetail">First truck 7:00 AM</div>
       </div>
     </section>
 
@@ -332,6 +332,113 @@
 <div class="tip" id="tip"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+// =====================================================================
+// CALCULATIONS
+// Pure functions: numbers in, numbers out. No page or map code here.
+// Times are in minutes after midnight; volumes in cubic yards (cy).
+// =====================================================================
+const PourCalc = (() => {
+  const EPS = 1e-9;              // floating-point tolerance for rounding up
+  const EARTH_R = 6378137;       // m
+  const FT2_PER_M2 = 10.7639;
+
+  // Round up to the next multiple of step, ignoring float noise
+  // (35.00000000000001 rounds to 35.0, not 35.5).
+  function roundUpTo(value, step) {
+    return Math.ceil(value / step - EPS) * step;
+  }
+
+  // Area of a drawn outline, given [[lat, lon], ...] in degrees. Returns ft^2.
+  function polygonAreaFt2(latlngs) {
+    if (!latlngs || latlngs.length < 3) return 0;
+    const rad = d => d * Math.PI / 180;
+    let sum = 0;
+    for (let i = 0; i < latlngs.length; i++) {
+      const [lat1, lon1] = latlngs[i];
+      const [lat2, lon2] = latlngs[(i + 1) % latlngs.length];
+      sum += rad(lon2 - lon1) * (2 + Math.sin(rad(lat1)) + Math.sin(rad(lat2)));
+    }
+    return Math.abs(sum) * EARTH_R * EARTH_R / 2 * FT2_PER_M2;
+  }
+
+  // Area of a typed rectangular slab, ft^2.
+  function rectAreaFt2(lengthFt, widthFt) {
+    return lengthFt * widthFt;
+  }
+
+  // Volumes from area (ft^2), thickness (in), and waste (%).
+  function volumes(areaFt2, thicknessIn, wastePct) {
+    const netCy = areaFt2 * thicknessIn / 12 / 27;
+    const withWasteCy = netCy * (1 + wastePct / 100);
+    const orderCy = roundUpTo(withWasteCy, 0.5);
+    return { netCy, withWasteCy, orderCy };
+  }
+
+  // Split the order into truckloads. Every load is full except the last.
+  function truckloads(orderCy, capacityCy) {
+    const count = Math.max(1, roundUpTo(orderCy / capacityCy, 1));
+    const lastCy = orderCy - (count - 1) * capacityCy;
+    const sizes = Array.from({ length: count }, (_, i) => (i < count - 1 ? capacityCy : lastCy));
+    return { count, lastCy, sizes };
+  }
+
+  // Minutes to unload a given volume at the crew's placement rate (cy/hr).
+  function unloadMinutes(cy, rateCyPerHr) {
+    return cy / rateCyPerHr * 60;
+  }
+
+  // Full plan for one pour.
+  // inputs: { areaFt2, thicknessIn, wastePct, capacityCy, travelMin,
+  //           rateCyPerHr, washoutMin, startMin }
+  function planPour(inp) {
+    const vol = volumes(inp.areaFt2, inp.thicknessIn, inp.wastePct);
+    const loads = truckloads(vol.orderCy, inp.capacityCy);
+    const fullUnloadMin = unloadMinutes(inp.capacityCy, inp.rateCyPerHr);
+    const lastUnloadMin = unloadMinutes(loads.lastCy, inp.rateCyPerHr);
+    const roundTripMin = 2 * inp.travelMin + fullUnloadMin + inp.washoutMin;
+    const trucks = Math.min(roundUpTo(roundTripMin / fullUnloadMin, 1), loads.count);
+
+    const schedule = loads.sizes.map((cy, i) => {
+      const arriveMin = inp.startMin + i * fullUnloadMin;
+      const unload = unloadMinutes(cy, inp.rateCyPerHr);
+      return {
+        load: i + 1,
+        truck: (i % trucks) + 1,
+        cy,
+        leavePlantMin: arriveMin - inp.travelMin,
+        arriveMin,
+        emptyMin: arriveMin + unload,
+        backAtPlantMin: arriveMin + unload + inp.travelMin,
+        readyMin: arriveMin + unload + inp.travelMin + inp.washoutMin,
+        unloadMin: unload
+      };
+    });
+
+    const last = schedule[schedule.length - 1];
+    const finishMin = last.arriveMin + lastUnloadMin;
+    return {
+      areaFt2: inp.areaFt2,
+      ...vol,
+      loadCount: loads.count,
+      loadSizes: loads.sizes,
+      lastLoadCy: loads.lastCy,
+      fullUnloadMin,
+      lastUnloadMin,
+      roundTripMin,
+      trucks,
+      schedule,
+      startMin: inp.startMin,
+      finishMin,
+      durationMin: finishMin - inp.startMin
+    };
+  }
+
+  return { roundUpTo, polygonAreaFt2, rectAreaFt2, volumes, truckloads, unloadMinutes, planPour };
+})();
+</script>
+
 <script>
 // ---------- Map (placeholder slab only, no calculations) ----------
 const CENTER = [40.2518, -111.6493];
@@ -455,6 +562,181 @@ const tl = document.getElementById("timeline");
 tl.addEventListener("mousemove", showTip);
 tl.addEventListener("click", showTip);
 tl.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+</script>
+
+<script>
+// =====================================================================
+// INPUTS -> CALCULATIONS -> SUMMARY CARDS AND ORDER TEXT
+// =====================================================================
+const INPUT_LIMITS = {
+  length:    { min: 1, max: 1000, def: 40, unit: "ft" },
+  width:     { min: 1, max: 1000, def: 60, unit: "ft" },
+  thickness: { min: 3, max: 24,   def: 6,  unit: "in" },
+  waste:     { min: 0, max: 15,   def: 5,  unit: "%" },
+  capacity:  { min: 1, max: 12,   def: 10, unit: "cy" },
+  travel:    { min: 5, max: 120,  def: 20, unit: "min" },
+  rate:      { min: 5, max: 150,  def: 30, unit: "cy/hr" },
+  washout:   { min: 0, max: 30,   def: 10, unit: "min" }
+};
+
+// Add an (initially empty) note line under each number box.
+for (const id of Object.keys(INPUT_LIMITS)) {
+  const field = document.getElementById(id).closest(".field");
+  const note = document.createElement("div");
+  note.className = "note";
+  note.id = id + "Note";
+  field.querySelector(".input-wrap").after(note);
+}
+
+// Notes for boxes whose typed value was replaced by a clamped one. A note
+// stays until the user edits that same box again.
+const clampNotes = {};
+
+// Read one number box, clamped to its range. Shows a note if it was changed.
+function readInput(id) {
+  const lim = INPUT_LIMITS[id];
+  const el = document.getElementById(id);
+  const note = document.getElementById(id + "Note");
+  const raw = el.value.trim() === "" ? NaN : Number(el.value);
+  let value = raw, msg = "";
+  if (!Number.isFinite(raw)) {
+    value = lim.def;
+    msg = `Enter a number. Using ${lim.def} ${lim.unit}.`;
+  } else if (raw < lim.min) {
+    value = lim.min;
+    msg = `Minimum is ${lim.min} ${lim.unit}. Using ${lim.min}.`;
+  } else if (raw > lim.max) {
+    value = lim.max;
+    msg = `Maximum is ${lim.max} ${lim.unit}. Using ${lim.max}.`;
+  }
+  note.textContent = msg || clampNotes[id] || "";
+  return { value, msg };
+}
+const inputValue = id => readInput(id).value;
+
+function readStartMin() {
+  const v = document.getElementById("start").value;   // "HH:MM"
+  const m = /^(\d{1,2}):(\d{2})/.exec(v);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : 7 * 60;
+}
+
+function readInputs() {
+  const lengthFt = inputValue("length"), widthFt = inputValue("width");
+  return {
+    areaFt2: PourCalc.rectAreaFt2(lengthFt, widthFt),
+    thicknessIn: inputValue("thickness"),
+    wastePct: inputValue("waste"),
+    capacityCy: inputValue("capacity"),
+    travelMin: inputValue("travel"),
+    rateCyPerHr: inputValue("rate"),
+    washoutMin: inputValue("washout"),
+    startMin: readStartMin()
+  };
+}
+
+// ---------- Formatting (display only) ----------
+const fmtNum = (v, d) => v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtLoad = cy => (Math.abs(cy - Math.round(cy)) < 1e-9 ? String(Math.round(cy)) : fmtNum(cy, 1));
+const fmtMin = m => String(Math.round(m));
+
+// Clock time: { time: "8:34", ampm: "AM", day: "" or " (+1 day)" }
+function clockParts(min) {
+  const total = Math.round(min);
+  const days = Math.floor(total / 1440);
+  const inDay = total - days * 1440;
+  const h24 = Math.floor(inDay / 60), m = inDay % 60;
+  const h12 = ((h24 + 11) % 12) + 1;
+  return {
+    time: `${h12}:${String(m).padStart(2, "0")}`,
+    ampm: h24 < 12 ? "AM" : "PM",
+    day: days > 0 ? ` (+${days} day${days > 1 ? "s" : ""})` : ""
+  };
+}
+const fmtClockFull = min => { const c = clockParts(min); return `${c.time} ${c.ampm}${c.day}`; };
+
+// Duration: { h, m } rounded to the nearest minute
+function durationParts(min) {
+  const total = Math.round(min);
+  return { h: Math.floor(total / 60), m: total % 60 };
+}
+function fmtDuration(min) {
+  const d = durationParts(min);
+  return d.h > 0 ? `${d.h} h ${d.m} min` : `${d.m} min`;
+}
+
+// "4 x 10 cy + 1 x 7 cy" (sep is "x" for the order text, "×" for the card)
+function loadsBreakdown(plan, sep) {
+  const full = plan.loadSizes.length - 1;
+  const cap = plan.loadSizes[0];
+  if (plan.loadCount === 1 || Math.abs(plan.lastLoadCy - cap) < 1e-9) {
+    return `${plan.loadCount} ${sep} ${fmtLoad(cap)} cy`;
+  }
+  return `${full} ${sep} ${fmtLoad(cap)} cy + 1 ${sep} ${fmtLoad(plan.lastLoadCy)} cy`;
+}
+
+function orderText(plan, inp) {
+  const one = plan.loadCount === 1;
+  const parts = [
+    `Order: ${fmtNum(plan.orderCy, 1)} cy, ${fmtLoad(inp.thicknessIn)} in slab (${fmtLoad(inp.wastePct)}% waste incl.).`,
+    `${plan.loadCount} load${one ? "" : "s"}: ${loadsBreakdown(plan, "x")}.`,
+    one
+      ? `First truck on site ${fmtClockFull(plan.startMin)}.`
+      : `First truck on site ${fmtClockFull(plan.startMin)}, then one every ${fmtMin(plan.fullUnloadMin)} min.`,
+    plan.trucks === 1 ? "1 truck." : `${plan.trucks} trucks in rotation.`,
+    `Last truck done ${fmtClockFull(plan.finishMin)}.`
+  ];
+  return parts.join(" ");
+}
+
+// ---------- Render ----------
+function render() {
+  const inp = readInputs();
+  const plan = PourCalc.planPour(inp);
+
+  document.getElementById("orderVal").innerHTML = `${fmtNum(plan.orderCy, 1)}<small>cy</small>`;
+  document.getElementById("orderDetail").textContent =
+    `${fmtNum(plan.netCy, 2)} cy net · ${fmtNum(plan.withWasteCy, 2)} cy with ${fmtLoad(inp.wastePct)}% waste`;
+
+  document.getElementById("loadsVal").textContent = plan.loadCount;
+  document.getElementById("loadsDetail").textContent = loadsBreakdown(plan, "×");
+
+  document.getElementById("trucksVal").textContent = plan.trucks;
+  document.getElementById("trucksDetail").textContent = `${fmtMin(plan.roundTripMin)} min round trip`;
+
+  const d = durationParts(plan.durationMin);
+  document.getElementById("durationVal").innerHTML =
+    d.h > 0 ? `${d.h} h ${d.m}<small>min</small>` : `${d.m}<small>min</small>`;
+  document.getElementById("durationDetail").textContent =
+    plan.loadCount === 1 ? "Single load" : `One truck every ${fmtMin(plan.fullUnloadMin)} min`;
+
+  const f = clockParts(plan.finishMin);
+  document.getElementById("finishVal").innerHTML = `${f.time}<small>${f.ampm}${f.day}</small>`;
+  document.getElementById("finishDetail").textContent = `First truck ${fmtClockFull(plan.startMin)}`;
+
+  document.getElementById("orderText").textContent = orderText(plan, inp);
+  return plan;
+}
+
+// Update on every keystroke; on leaving a box, replace an out-of-range
+// value with the clamped one (so typing "2" on the way to "24" isn't fought).
+for (const id of [...Object.keys(INPUT_LIMITS), "start"]) {
+  const el = document.getElementById(id);
+  el.addEventListener("input", () => {
+    delete clampNotes[id];       // the user is editing this box again
+    render();
+  });
+  el.addEventListener("change", () => {
+    if (id in INPUT_LIMITS) {
+      const { value, msg } = readInput(id);
+      if (msg) {
+        clampNotes[id] = msg;    // keep the note after the box is corrected
+        el.value = value;
+      }
+    }
+    render();
+  });
+}
+render();
 </script>
 </body>
 </html>

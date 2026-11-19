@@ -75,9 +75,10 @@ planning a slab pour and calling in the order to the batch plant.
   floating-point error: a value within 1e-9 of a whole step is not bumped
   up to the next step.
 - Calculations use full precision. On screen: area to the whole ft^2,
-  net volume and volume with waste to 0.01 cy, volume to order and loads
-  to 0.5 cy shown with one decimal (47.0), clock times to the nearest
-  minute, and durations as "1 h 34 min".
+  net volume and volume with waste to 0.01 cy, volume to order with one
+  decimal (47.0), load sizes without a decimal when whole (10 cy, 7 cy)
+  and with one otherwise (7.5 cy), clock times to the nearest minute, and
+  durations as "1 h 34 min" (or "10 min" under an hour).
 - If there is no slab, or its area is zero, show a hint to draw or type a
   slab instead of results. A time past midnight is shown with "(+1 day)".
 
@@ -101,7 +102,11 @@ planning a slab pour and calling in the order to the batch plant.
   1 x 7 cy. First truck on site 7:00 AM, then one every 20 min. 4 trucks
   in rotation. Last truck done 8:34 AM."
   If every load is full, or there is only one load, the loads part is
-  just "N x C cy" (for example "1 load: 1 x 5 cy").
+  just "N x C cy" (for example "1 load: 1 x 5 cy"). With only one load,
+  the spacing phrase is dropped and the trucks part reads "1 truck."
+  (for validation case 3: "Order: 5.0 cy, 4 in slab (0% waste incl.).
+  1 load: 1 x 5 cy. First truck on site 7:00 AM. 1 truck. Last truck
+  done 7:10 AM.").
 - Everything updates immediately whenever an input changes.
 
 ## Look and feel
