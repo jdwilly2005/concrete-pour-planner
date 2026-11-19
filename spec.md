@@ -102,6 +102,10 @@ planning a slab pour and calling in the order to the batch plant.
   - A vertical line marks the finish time. Segments after the finish
     (the last trucks' trips back and washouts) are drawn faded.
   - Hovering a segment shows its name, start and end times, and length.
+  - For very large pours, the timeline shows the first 60 loads and a
+    note such as "Showing the first 60 of 412 loads." The summary cards
+    and order text always cover every load.
+  - With no slab, the timeline area shows the same hint as the cards.
 - An "Order summary" box with a plain-text order for the batch plant and
   a "Copy" button. Template, filled in for validation case 1:
   "Order: 47.0 cy, 6 in slab (5% waste incl.). 5 loads: 4 x 10 cy +

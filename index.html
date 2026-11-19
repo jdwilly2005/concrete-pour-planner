@@ -184,6 +184,9 @@
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
   .timeline-wrap { overflow-x: auto; }
+  .timeline-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .timeline-note:empty { display: none; }
+  .tip { max-width: 280px; }
   #timeline { display: block; width: 100%; }
   #timeline .seg { cursor: pointer; }
   #timeline .seg:hover { filter: brightness(0.92); }
@@ -211,7 +214,6 @@
 </head>
 <body>
 
-<div class="mockup-banner">In progress: the map, summary cards, and order text are live. The truck timeline is still a placeholder.</div>
 
 <header>
   <div class="logo">CP</div>
@@ -335,6 +337,7 @@
         <span><i class="swatch" style="background:#D9DEE3"></i>Washout and reload</span>
       </div>
       <div class="timeline-wrap"><svg id="timeline"></svg></div>
+      <div class="timeline-note" id="timelineNote"></div>
     </section>
 
     <section class="card">
@@ -508,77 +511,91 @@ window.addEventListener("load", refitMap);
 window.addEventListener("resize", () => map.invalidateSize());
 new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById("map"));
 
-// ---------- Timeline (placeholder data for validation case 1) ----------
-// Times are minutes after midnight. Hard-coded for the mockup.
-const placeholderLoads = [
-  { load: 1, truck: 1, cy: 10, arrive: 420, unload: 20 },
-  { load: 2, truck: 2, cy: 10, arrive: 440, unload: 20 },
-  { load: 3, truck: 3, cy: 10, arrive: 460, unload: 20 },
-  { load: 4, truck: 4, cy: 10, arrive: 480, unload: 20 },
-  { load: 5, truck: 1, cy: 7,  arrive: 500, unload: 14 }
-];
-const placeholderTravel = 20, placeholderWashout = 10, placeholderFinish = 514;
-
+// =====================================================================
+// TRUCK TIMELINE (drawing only; the schedule comes from PourCalc.planPour)
+// Uses the formatting helpers defined in the inputs script below.
+// =====================================================================
 const COLORS = { out: "#52606D", unload: "#E8590C", back: "#9AA5B1", wash: "#D9DEE3" };
 const NAMES = { out: "Travel out", unload: "Unloading", back: "Trip back", wash: "Washout and reload" };
+const MAX_TIMELINE_ROWS = 60;
+let lastPlan = null;   // redrawn on window resize
 
-function fmtClock(min) {
-  const h24 = Math.floor(min / 60) % 24, m = Math.round(min % 60);
-  const h12 = ((h24 + 11) % 12) + 1;
-  return `${h12}:${String(m).padStart(2, "0")} ${h24 < 12 ? "AM" : "PM"}`;
-}
-
-function drawTimeline(loads, travel, washout, finish) {
+function drawTimeline(plan) {
+  lastPlan = plan;
   const svg = document.getElementById("timeline");
+  const note = document.getElementById("timelineNote");
+  if (!plan) {
+    svg.innerHTML = "";
+    svg.setAttribute("height", 0);
+    note.textContent = "Draw a slab on the map or type a length and width to see the truck schedule.";
+    return;
+  }
+  const rows = plan.schedule.slice(0, MAX_TIMELINE_ROWS);
+  note.textContent = plan.loadCount > rows.length
+    ? `Showing the first ${rows.length} of ${plan.loadCount.toLocaleString("en-US")} loads.`
+    : "";
+
   const width = Math.max(svg.parentElement.clientWidth || 640, 280);
   const narrow = width < 500;
   const rowH = 34, labelW = narrow ? 104 : 150, top = 22, axisH = 28, right = 20;
-  const t0 = Math.floor((loads[0].arrive - travel) / 15) * 15;
-  const tEnd = Math.ceil((loads[loads.length - 1].arrive + loads[loads.length - 1].unload + travel + washout) / 15) * 15;
-  const x = t => labelW + (t - t0) / (tEnd - t0) * (width - labelW - right);
-  // Axis tick spacing: 15, 30, or 60 min, whichever leaves room for the labels.
-  const pxPerMin = (width - labelW - right) / (tEnd - t0);
-  const step = [15, 30, 60].find(m => m * pxPerMin >= 38) || 60;
-  const height = top + loads.length * rowH + axisH;
+  const plotW = width - labelW - right;
+
+  // Time range: first truck leaving the plant to the last shown truck ready again.
+  const first = rows[0].leavePlantMin;
+  const last = Math.max(...rows.map(r => r.readyMin));
+  const pxPerMinRough = plotW / Math.max(last - first, 1);
+  // Tick spacing: the smallest of these that leaves room for the labels.
+  const step = [15, 30, 60, 120, 180, 240, 360, 720].find(m => m * pxPerMinRough >= 38) || 720;
+  const t0 = Math.floor(first / step) * step;
+  const tEnd = Math.ceil(last / step) * step;
+  const x = t => labelW + (t - t0) / (tEnd - t0) * plotW;
+
+  const plotH = rows.length * rowH;
+  const height = top + plotH + axisH;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("height", height);
 
   let s = "";
-  // grid and axis labels
-  for (let t = Math.ceil(t0 / step) * step; t <= tEnd; t += step) {
-    s += `<line x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${top + loads.length * rowH}" stroke="#EEF0F2"/>`;
-    const anchor = t + step > tEnd ? "end" : "middle";
-    s += `<text x="${x(t)}" y="${top + loads.length * rowH + 18}" font-size="11" fill="#7B8794" text-anchor="${anchor}">${fmtClock(t).replace(" AM", "").replace(" PM", "")}</text>`;
+  // Grid lines and clock labels
+  for (let t = t0; t <= tEnd + 1e-9; t += step) {
+    s += `<line x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${top + plotH}" stroke="#EEF0F2"/>`;
+    s += `<text x="${x(t)}" y="${top + plotH + 18}" font-size="11" fill="#7B8794" text-anchor="middle">${clockParts(t).time}</text>`;
   }
-  loads.forEach((ld, i) => {
+
+  rows.forEach((r, i) => {
     const y = top + i * rowH;
     if (i % 2 === 1) s += `<rect x="0" y="${y}" width="${width}" height="${rowH}" fill="#FAFBFC"/>`;
-    const label = narrow ? `Load ${ld.load} · T${ld.truck} · ${ld.cy} cy` : `Load ${ld.load} · Truck ${ld.truck} · ${ld.cy} cy`;
+    const label = narrow
+      ? `Load ${r.load} · T${r.truck} · ${fmtLoad(r.cy)} cy`
+      : `Load ${r.load} · Truck ${r.truck} · ${fmtLoad(r.cy)} cy`;
     s += `<text x="0" y="${y + rowH / 2 + 4}" font-size="${narrow ? 11 : 12}" fill="#323F4B">${label}</text>`;
     const segs = [
-      ["out", ld.arrive - travel, ld.arrive],
-      ["unload", ld.arrive, ld.arrive + ld.unload],
-      ["back", ld.arrive + ld.unload, ld.arrive + ld.unload + travel],
-      ["wash", ld.arrive + ld.unload + travel, ld.arrive + ld.unload + travel + washout]
+      ["out", r.leavePlantMin, r.arriveMin],
+      ["unload", r.arriveMin, r.emptyMin],
+      ["back", r.emptyMin, r.backAtPlantMin],
+      ["wash", r.backAtPlantMin, r.readyMin]
     ];
-    segs.forEach(([kind, a, b]) => {
-      const faded = a >= finish ? 0.35 : 1;
+    for (const [kind, a, b] of segs) {
+      if (b - a < 1e-9) continue;                         // e.g. 0 min washout
+      const afterFinish = a >= plan.finishMin - 1e-9;     // faded: after the pour ends
+      const tipText = `Load ${r.load}, truck ${r.truck}. ${NAMES[kind]}: ` +
+        `${fmtClockFull(a)} – ${fmtClockFull(b)} (${fmtDuration(b - a)})`;
       s += `<rect class="seg" x="${x(a)}" y="${y + 8}" width="${Math.max(x(b) - x(a) - 1, 1)}" height="${rowH - 16}" rx="3"
-              fill="${COLORS[kind]}" opacity="${faded}"
-              data-tip="${NAMES[kind]}: ${fmtClock(a)} – ${fmtClock(b)} (${b - a} min)"/>`;
-    });
+              fill="${COLORS[kind]}" opacity="${afterFinish ? 0.35 : 1}" data-tip="${tipText}"/>`;
+    }
   });
-  // finish line
-  s += `<line x1="${x(finish)}" x2="${x(finish)}" y1="${top - 4}" y2="${top + loads.length * rowH}" stroke="#1F2933" stroke-width="1.5" stroke-dasharray="4 3"/>`;
-  // Label sits above the rows, centered on the line, kept inside the chart.
-  const labelX = Math.min(Math.max(x(finish), labelW + 40), width - right - 40);
-  s += `<text x="${labelX}" y="${top - 8}" font-size="11" font-weight="600" fill="#1F2933" text-anchor="middle">Finish ${fmtClock(finish)}</text>`;
+
+  // Finish line (only if the last load is among the rows shown)
+  if (rows.length === plan.loadCount) {
+    const fx = x(plan.finishMin);
+    s += `<line x1="${fx}" x2="${fx}" y1="${top - 4}" y2="${top + plotH}" stroke="#1F2933" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    const labelX = Math.min(Math.max(fx, labelW + 45), width - right - 45);
+    s += `<text x="${labelX}" y="${top - 8}" font-size="11" font-weight="600" fill="#1F2933" text-anchor="middle">Finish ${fmtClockFull(plan.finishMin)}</text>`;
+  }
   svg.innerHTML = s;
 }
 
-drawTimeline(placeholderLoads, placeholderTravel, placeholderWashout, placeholderFinish);
-window.addEventListener("resize", () =>
-  drawTimeline(placeholderLoads, placeholderTravel, placeholderWashout, placeholderFinish));
+window.addEventListener("resize", () => { if (lastPlan) drawTimeline(lastPlan); });
 
 // Hover / tap details for timeline segments
 const tip = document.getElementById("tip");
@@ -587,9 +604,15 @@ function showTip(e) {
   if (!t) { tip.style.display = "none"; return; }
   tip.textContent = t.dataset.tip;
   tip.style.display = "block";
-  tip.style.left = (e.clientX + 12) + "px";
-  tip.style.top = (e.clientY + 12) + "px";
+  // Keep the box on screen (matters on phones).
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  const left = Math.min(e.clientX + 12, window.innerWidth - w - 8);
+  const top = e.clientY + 12 + h > window.innerHeight ? e.clientY - h - 12 : e.clientY + 12;
+  tip.style.left = Math.max(8, left) + "px";
+  tip.style.top = top + "px";
 }
+// Tapping anywhere else hides the details.
+document.addEventListener("click", e => { if (!e.target.closest("#timeline .seg")) tip.style.display = "none"; });
 const tl = document.getElementById("timeline");
 tl.addEventListener("mousemove", showTip);
 tl.addEventListener("click", showTip);
@@ -895,6 +918,7 @@ function renderEmpty() {
     "Draw a slab on the map or type a length and width to see the order.";
   document.getElementById("mapWarning").hidden = true;
   document.getElementById("slabSource").textContent = "";
+  drawTimeline(null);
 }
 
 // ---------- Render ----------
@@ -909,10 +933,10 @@ function render() {
   document.getElementById("orderDetail").textContent =
     `${fmtNum(plan.netCy, 2)} cy net · ${fmtNum(plan.withWasteCy, 2)} cy with ${fmtLoad(inp.wastePct)}% waste`;
 
-  document.getElementById("loadsVal").textContent = plan.loadCount;
+  document.getElementById("loadsVal").textContent = plan.loadCount.toLocaleString("en-US");
   document.getElementById("loadsDetail").textContent = loadsBreakdown(plan, "×");
 
-  document.getElementById("trucksVal").textContent = plan.trucks;
+  document.getElementById("trucksVal").textContent = plan.trucks.toLocaleString("en-US");
   document.getElementById("trucksDetail").textContent = `${fmtMin(plan.roundTripMin)} min round trip`;
 
   const d = durationParts(plan.durationMin);
@@ -926,6 +950,7 @@ function render() {
   document.getElementById("finishDetail").textContent = `First truck ${fmtClockFull(plan.startMin)}`;
 
   document.getElementById("orderText").textContent = orderText(plan, inp);
+  drawTimeline(plan);
   return plan;
 }
 
