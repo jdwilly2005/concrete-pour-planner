@@ -153,6 +153,37 @@ planning a slab pour and calling in the order to the batch plant.
 - Saving plans.
 - Address search (the user pans and zooms the map by hand).
 
+## Build stages
+1. Layout mockup. index.html with the Leaflet satellite map centered on
+   BYU, every input, the five summary cards, a placeholder timeline, and
+   the order summary box, filled with validation case 1 values. No real
+   calculations.
+   Check: the layout matches Look and feel (map and inputs left, results
+   right, orange accent, large numbers); narrowing the window stacks
+   everything; satellite tiles load with attribution.
+2. Calculations with a typed slab. Pure calculation functions (area,
+   volumes, loads, schedule, trucks in rotation), separate from the
+   drawing code. Typed length and width plus every input drive the
+   summary cards and order text; out-of-range values clamp with a note.
+   Check: typing validation cases 1, 3, 4, and 5 gives the expected cards
+   and order text; 30 in thickness clamps to 24 in.
+3. Map drawing. The typed rectangle drawn at the map center; Draw slab,
+   draggable corners, and Clear; the area and volume label; the polygon
+   area formula; the 3-corner rule, crossing-edge warning, and hint text.
+   Check: case 2 run through the area function gives about 101,800 ft^2;
+   an outlined building matches Google Maps' Measure distance; dragging a
+   corner updates every output.
+4. Truck timeline. The SVG Gantt chart: one row per load with its truck
+   number, four colors and a legend, the finish line, faded segments after
+   the finish, and hover/tap details.
+   Check: case 1 shows 5 rows arriving 7:00 to 8:20 with the finish line
+   at 8:34; case 5 shows trucks 1 to 5; hovering shows correct times.
+5. Polish and edge cases. The Copy button, "(+1 day)" past midnight, the
+   no-slab state, a phone layout pass, and no console errors.
+   Check: every validation case still matches; the phone-width layout
+   works; clearing the slab shows the hint; a late start time shows
+   "(+1 day)".
+
 ## Resolved notes
 Decisions from the spec review (Step 3), already written into the
 sections above:
