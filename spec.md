@@ -54,6 +54,15 @@ planning a slab pour and calling in the order to the batch plant.
   The three cost inputs are in their own "Cost" group, below the truck
   and crew inputs.
 
+| Input | Units | Range | Step | Default |
+|-------|-------|-------|------|---------|
+| Discharge limit, batching to empty | min | 30 to 180 | 1 | 90 |
+| Initial set time of the concrete | min | 60 to 480 | 5 | 180 |
+
+  These two are in a "Concrete timing" group below the cost inputs. 90
+  min is the ASTM C94 default discharge limit; 3 h is a typical initial
+  set for normal concrete around 70°F (shorter in hot weather).
+
 - Time the first truck should arrive: a time picker, default 7:00 AM.
 
 ## Calculations
@@ -89,6 +98,17 @@ planning a slab pour and calling in the order to the batch plant.
   - Short-load fees ($) = number of short loads x short-load fee.
   - Estimated cost ($) = concrete cost + short-load fees.
   - Dollars are shown rounded to the nearest dollar, with commas.
+- Concrete timing checks:
+  - Each load is batched when its truck leaves the plant (its arrival
+    minus the travel time).
+  - Age of a load when empty = travel time + that load's unload time.
+    (Trucks arrive as the previous one finishes, so no load waits.)
+  - Discharge check: a load is over the limit if its age when empty is
+    more than the discharge limit (equal passes). The check passes if no
+    load is over.
+  - Set check: the first load starts to set at its batch time + the
+    initial set time. The check passes if the last load arrives at or
+    before that time; otherwise there is a cold-joint risk.
 - Finish time = arrival of the last load + unload time for the last load.
 - Pour duration = finish time - start.
 - Rounding up (volume to order, truckloads, trucks in rotation) ignores
@@ -114,6 +134,20 @@ planning a slab pour and calling in the order to the batch plant.
   short-load fees, for example "47.0 cy × $165 · no short loads" or
   "5.0 cy × $165 + $100 short-load fee (1 load)". The cost is not part of
   the order summary text.
+- A full-width "Timing checks" bar below the summary cards, one line per
+  check, each with a green ✓ or an amber ⚠, for example:
+  - "✓ Every load is empty within 90 min of batching (longest 40 min)."
+  - "⚠ 4 of 5 loads take longer than 90 min from batching to empty (up
+    to 95 min)."
+  - "✓ Last truck arrives 8:20 AM, 80 min before the first load starts
+    to set (9:40 AM)."
+  - "⚠ Last truck arrives 8:20 AM, 40 min after the first load starts to
+    set (7:40 AM). Risk of a cold joint."
+  The timing checks are not part of the order summary text.
+- On the timeline, a load over the discharge limit gets a red outline on
+  its unloading bar and a ⚠ before its row label. A dashed red line
+  labeled "First load sets" marks that time when it falls inside the
+  chart.
 - A truck schedule as a timeline (like a Gantt chart), drawn as inline
   SVG with no chart library:
   - One row per load, labeled like "Load 3 · Truck 3 · 10 cy".
@@ -191,6 +225,21 @@ planning a slab pour and calling in the order to the batch plant.
      3 cy), all short. Concrete $7,755; fees 12 x $100 = $1,200;
      estimated cost $8,955.
    - 6d. Case 3 with threshold 0: no short loads; estimated cost $825.
+7. Concrete timing, default limit 90 min and set time 180 min:
+   - 7a. Case 1: full loads empty at 20 + 20 = 40 min, last load at
+     20 + 14 = 34 min, so the discharge check passes (longest 40 min).
+     First load batched 6:40 AM, sets 9:40 AM; last truck arrives
+     8:20 AM, 80 min before. Both checks pass.
+   - 7b. Case 1 with 75 min travel: loads 1 to 4 reach 75 + 20 = 95 min
+     (over); load 5 reaches 75 + 14 = 89 min (not over). "4 of 5 loads",
+     up to 95 min. First load batched 5:45 AM, sets 8:45 AM; last truck
+     8:20 AM, 25 min before, so the set check passes.
+   - 7c. Case 1 with set time 60 min: first load sets 6:40 + 60 =
+     7:40 AM; last truck arrives 8:20 AM, 40 min after, so the set check
+     fails. The discharge check passes.
+   - 7d. Boundaries: case 1 with 70 min travel reaches exactly 90 min,
+     which passes. Case 1 with set time 100 min sets at exactly 8:20 AM,
+     the last arrival, which passes.
 
 ## Out of scope
 - Reinforcement, finishing crews, pump trucks, and weather.
@@ -251,3 +300,8 @@ sections above:
 - Feature 1 (Step 6): cost estimate. Flat fee per short load (not per
   missing yard); defaults $165/cy, 6 cy threshold, $100 fee; shown on a
   sixth summary card only, not in the order text. Validation case 6.
+- Feature 2 (Step 6): concrete timing checks. Both a per-load discharge
+  limit (default 90 min) and a last-truck-before-first-load-sets check
+  (default set time 180 min); concrete is batched when the truck leaves
+  the plant; warnings on the page and timeline only, not in the order
+  text. Validation case 7.

@@ -54,3 +54,8 @@
 - **Asked:** Build it now.
 - **Changed:** index.html only (spec was already updated): `PourCalc.costEstimate` (pure, separate from planPour so the schedule math is untouched); a "Cost" input group (price, short-load threshold, fee) with clamping and dollar-formatted notes; an "Estimated cost" card, with the cards now in two rows of three; cost card cleared in the empty state. Also fixed a map bug found while checking the layout: the map could open off-center at desktop width because Leaflet's animated re-centering drifted during load-time resizes; it now restores the intended center exactly after each resize. Results in 02_validation/feature1_cost_results.md.
 - **Worked?** Yes. Case 6a-6d match ($7,755, $925, $8,955, $825); cases 1-5 unchanged; layout fine at 1280 px and 375 px. A fresh page load at phone size could not be re-run in the preview pane after the map fix.
+
+## 12. Plan feature 2 (Step 6): concrete timing checks
+- **Asked:** Plan feature 2.
+- **Changed:** Chose the working-time check over the pump truck and plant truck limit. Decided: both checks (per-load discharge limit, and last truck before the first load sets), defaults 90 min and 180 min, warnings on the page and timeline only. spec.md only: two inputs, the timing equations (batched when the truck leaves the plant; equal passes), a "Timing checks" bar and timeline markings, validation case 7 (7a-7d, worked by hand), Resolved notes entry. Nothing built yet.
+- **Worked?** Yes (planning only).
