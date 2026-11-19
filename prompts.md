@@ -9,3 +9,8 @@
 - **Asked:** Commit the working tree changes.
 - **Changed:** Added .gitignore (ignores .DS_Store and the assignment PDF, so course material stays out of the public repo) and committed the setup and spec.
 - **Worked?** Yes.
+
+## 3. Spec review (Step 3)
+- **Asked:** Start the spec review: whole-spec check, then each section in order.
+- **Changed:** spec.md only. Inputs: ranges/steps/defaults table, number boxes that clamp, one slab at a time with Clear, 3+ corners, crossing-edge warning. Calculations: defined start, departure, last load, finish, duration, float tolerance, display rounding, no-slab and past-midnight cases. Outputs: timeline row labels and faded post-finish segments, card detail line, order text template. Look and feel: safety orange accent, opens on case 1, hint text, tap on touch. Validation: added cases 4 and 5. Out of scope: address search. Added a Resolved notes section.
+- **Worked?** Yes. First draft of case 4 (30 x 54 x 8) turned out not to trigger float error (40 x 1.05 is exactly 42.0); replaced it with 30 x 60 x 6, which computes 35.00000000000001. Checked in Python, which uses the same doubles as JavaScript. Case 2 area computes to 101,804 ft^2.
