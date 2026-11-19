@@ -59,3 +59,8 @@
 - **Asked:** Plan feature 2.
 - **Changed:** Chose the working-time check over the pump truck and plant truck limit. Decided: both checks (per-load discharge limit, and last truck before the first load sets), defaults 90 min and 180 min, warnings on the page and timeline only. spec.md only: two inputs, the timing equations (batched when the truck leaves the plant; equal passes), a "Timing checks" bar and timeline markings, validation case 7 (7a-7d, worked by hand), Resolved notes entry. Nothing built yet.
 - **Worked?** Yes (planning only).
+
+## 13. Build feature 2: concrete timing checks
+- **Asked:** Build it now.
+- **Changed:** index.html: `PourCalc.timingChecks` (pure; per-load batching-to-empty age vs the discharge limit, and last arrival vs the first load's set time; equal passes); a "Concrete timing" input group; a "Timing checks" bar with green ✓ / amber ⚠ lines, hidden with no slab; timeline marks over-limit loads with a ⚠ label and red outline, adds the batching-to-empty age to the unloading tooltip, and draws a dashed red "First load sets" line when it falls inside the chart. spec.md: added the "just as the first load starts to set" wording for a 0 min margin (found at the 7d boundary). Also made the setDrawnSlab() console helper zoom instantly. Results in 02_validation/feature2_timing_results.md.
+- **Worked?** Yes. Case 7a-7d match; cases 1-6 unchanged; layout checked at 1280 px and 375 px; no console messages.

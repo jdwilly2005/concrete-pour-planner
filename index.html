@@ -186,6 +186,20 @@
   .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
   .timeline-wrap { overflow-x: auto; }
   .timeline-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* Timing checks */
+  .timing { padding: 14px 20px; }
+  .timing h2 { margin-bottom: 8px; }
+  .timing[hidden] { display: none; }
+  .check {
+    font-size: 14px; padding: 7px 10px; border-radius: 8px; margin-top: 6px;
+    display: flex; gap: 8px; align-items: baseline;
+  }
+  .check::before { font-weight: 700; }
+  .check.ok { background: #EBFBEE; color: #1E6B30; }
+  .check.ok::before { content: "✓"; }
+  .check.warn { background: #FFF4E5; color: #8A4B00; }
+  .check.warn::before { content: "⚠"; }
   .timeline-note:empty { display: none; }
   .tip { max-width: 280px; }
   #timeline { display: block; width: 100%; }
@@ -317,6 +331,22 @@
           </div>
         </div>
       </div>
+
+      <div class="field-group">
+        <h3>Concrete timing</h3>
+        <div class="fields">
+          <div class="field">
+            <label for="dischargeLimit">Discharge limit, batching to empty</label>
+            <div class="input-wrap"><input id="dischargeLimit" type="number" min="30" max="180" step="1" value="90"><span class="unit">min</span></div>
+            <div class="range">30 to 180 min (ASTM C94: 90)</div>
+          </div>
+          <div class="field">
+            <label for="setTime">Initial set time</label>
+            <div class="input-wrap"><input id="setTime" type="number" min="60" max="480" step="5" value="180"><span class="unit">min</span></div>
+            <div class="range">60 to 480 min (about 180 at 70°F)</div>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -353,6 +383,12 @@
         <div class="value" id="finishVal">8:34<small>AM</small></div>
         <div class="detail" id="finishDetail">First truck 7:00 AM</div>
       </div>
+    </section>
+
+    <section class="card timing" id="timingChecks" aria-live="polite">
+      <h2>Timing checks</h2>
+      <div class="check" id="dischargeCheck"></div>
+      <div class="check" id="setCheck"></div>
     </section>
 
     <section class="card">
@@ -520,8 +556,30 @@ const PourCalc = (() => {
     return { concreteCost, shortLoads, shortFees, total: concreteCost + shortFees };
   }
 
+  // Concrete timing checks for a plan from planPour.
+  // Each load is batched when its truck leaves the plant. Its age when
+  // empty is travel + its unload time (no load waits on site).
+  // Equal to a limit passes in both checks.
+  function timingChecks(plan, dischargeLimitMin, setTimeMin) {
+    const ages = plan.schedule.map(r => r.emptyMin - r.leavePlantMin);   // = travel + unload
+    const overLoads = plan.schedule.filter((r, i) => ages[i] > dischargeLimitMin + EPS).map(r => r.load);
+    const firstBatchMin = plan.schedule[0].leavePlantMin;
+    const setsAtMin = firstBatchMin + setTimeMin;
+    const lastArriveMin = plan.schedule[plan.schedule.length - 1].arriveMin;
+    return {
+      maxAgeMin: Math.max(...ages),
+      overLoads,
+      dischargeOk: overLoads.length === 0,
+      firstBatchMin,
+      setsAtMin,
+      lastArriveMin,
+      setOk: lastArriveMin <= setsAtMin + EPS,
+      setMarginMin: setsAtMin - lastArriveMin      // negative = arrives after the first load sets
+    };
+  }
+
   return { roundUpTo, polygonAreaFt2, rectAreaFt2, rectCorners, edgesCross,
-           volumes, truckloads, unloadMinutes, planPour, costEstimate };
+           volumes, truckloads, unloadMinutes, planPour, costEstimate, timingChecks };
 })();
 </script>
 
@@ -560,10 +618,11 @@ new ResizeObserver(refitMap).observe(document.getElementById("map"));
 const COLORS = { out: "#52606D", unload: "#E8590C", back: "#9AA5B1", wash: "#D9DEE3" };
 const NAMES = { out: "Travel out", unload: "Unloading", back: "Trip back", wash: "Washout and reload" };
 const MAX_TIMELINE_ROWS = 60;
-let lastPlan = null;   // redrawn on window resize
+let lastPlan = null, lastTiming = null;   // redrawn on window resize
 
-function drawTimeline(plan) {
+function drawTimeline(plan, timing) {
   lastPlan = plan;
+  lastTiming = timing;
   const svg = document.getElementById("timeline");
   const note = document.getElementById("timelineNote");
   if (!plan) {
@@ -579,8 +638,9 @@ function drawTimeline(plan) {
 
   const width = Math.max(svg.parentElement.clientWidth || 640, 280);
   const narrow = width < 500;
-  const rowH = 34, labelW = narrow ? 104 : 150, top = 22, axisH = 28, right = 20;
+  const rowH = 34, labelW = narrow ? 104 : 150, axisH = 28, right = 20;
   const plotW = width - labelW - right;
+  const overSet = new Set(timing ? timing.overLoads : []);
 
   // Time range: first truck leaving the plant to the last shown truck ready again.
   const first = rows[0].leavePlantMin;
@@ -591,6 +651,11 @@ function drawTimeline(plan) {
   const t0 = Math.floor(first / step) * step;
   const tEnd = Math.ceil(last / step) * step;
   const x = t => labelW + (t - t0) / (tEnd - t0) * plotW;
+
+  // "First load sets" line, only when that time is inside the chart.
+  // It gets its own label row above the Finish label.
+  const showSet = timing && timing.setsAtMin >= t0 && timing.setsAtMin <= tEnd;
+  const top = showSet ? 38 : 22;
 
   const plotH = rows.length * rowH;
   const height = top + plotH + axisH;
@@ -607,10 +672,12 @@ function drawTimeline(plan) {
   rows.forEach((r, i) => {
     const y = top + i * rowH;
     if (i % 2 === 1) s += `<rect x="0" y="${y}" width="${width}" height="${rowH}" fill="#FAFBFC"/>`;
+    const over = overSet.has(r.load);
     const label = narrow
-      ? `Load ${r.load} · T${r.truck} · ${fmtLoad(r.cy)} cy`
-      : `Load ${r.load} · Truck ${r.truck} · ${fmtLoad(r.cy)} cy`;
-    s += `<text x="0" y="${y + rowH / 2 + 4}" font-size="${narrow ? 11 : 12}" fill="#323F4B">${label}</text>`;
+      ? `${over ? "⚠ L" : "Load "}${r.load} · T${r.truck} · ${fmtLoad(r.cy)} cy`
+      : `${over ? "⚠ " : ""}Load ${r.load} · Truck ${r.truck} · ${fmtLoad(r.cy)} cy`;
+    s += `<text x="0" y="${y + rowH / 2 + 4}" font-size="${narrow ? 11 : 12}" fill="${over ? "#C92A2A" : "#323F4B"}">${label}</text>`;
+    const ageMin = r.emptyMin - r.leavePlantMin;
     const segs = [
       ["out", r.leavePlantMin, r.arriveMin],
       ["unload", r.arriveMin, r.emptyMin],
@@ -620,10 +687,14 @@ function drawTimeline(plan) {
     for (const [kind, a, b] of segs) {
       if (b - a < 1e-9) continue;                         // e.g. 0 min washout
       const afterFinish = a >= plan.finishMin - 1e-9;     // faded: after the pour ends
-      const tipText = `Load ${r.load}, truck ${r.truck}. ${NAMES[kind]}: ` +
+      let tipText = `Load ${r.load}, truck ${r.truck}. ${NAMES[kind]}: ` +
         `${fmtClockFull(a)} – ${fmtClockFull(b)} (${fmtDuration(b - a)})`;
+      if (kind === "unload") {
+        tipText += `. Batching to empty: ${fmtMin(ageMin)} min${over ? " (over the limit)" : ""}.`;
+      }
+      const outline = kind === "unload" && over ? `stroke="#C92A2A" stroke-width="2.5"` : "";
       s += `<rect class="seg" x="${x(a)}" y="${y + 8}" width="${Math.max(x(b) - x(a) - 1, 1)}" height="${rowH - 16}" rx="3"
-              fill="${COLORS[kind]}" opacity="${afterFinish ? 0.35 : 1}" data-tip="${tipText}"/>`;
+              fill="${COLORS[kind]}" opacity="${afterFinish ? 0.35 : 1}" ${outline} data-tip="${tipText}"/>`;
     }
   });
 
@@ -634,10 +705,16 @@ function drawTimeline(plan) {
     const labelX = Math.min(Math.max(fx, labelW + 45), width - right - 45);
     s += `<text x="${labelX}" y="${top - 8}" font-size="11" font-weight="600" fill="#1F2933" text-anchor="middle">Finish ${fmtClockFull(plan.finishMin)}</text>`;
   }
+  if (showSet) {
+    const sx = x(timing.setsAtMin);
+    s += `<line x1="${sx}" x2="${sx}" y1="18" y2="${top + plotH}" stroke="#C92A2A" stroke-width="1.5" stroke-dasharray="2 3"/>`;
+    const labelX = Math.min(Math.max(sx, labelW + 60), width - right - 60);
+    s += `<text x="${labelX}" y="12" font-size="11" font-weight="600" fill="#C92A2A" text-anchor="middle">First load sets ${fmtClockFull(timing.setsAtMin)}</text>`;
+  }
   svg.innerHTML = s;
 }
 
-window.addEventListener("resize", () => { if (lastPlan) drawTimeline(lastPlan); });
+window.addEventListener("resize", () => { if (lastPlan) drawTimeline(lastPlan, lastTiming); });
 
 // Hover / tap details for timeline segments
 const tip = document.getElementById("tip");
@@ -676,7 +753,9 @@ const INPUT_LIMITS = {
   washout:   { min: 0, max: 30,   def: 10, unit: "min" },
   price:          { min: 50, max: 500, def: 165, unit: "$/cy", show: v => `$${v}/cy` },
   shortThreshold: { min: 0,  max: 12,  def: 6,   unit: "cy" },
-  shortFee:       { min: 0,  max: 500, def: 100, unit: "$",    show: v => `$${v}` }
+  shortFee:       { min: 0,  max: 500, def: 100, unit: "$",    show: v => `$${v}` },
+  dischargeLimit: { min: 30, max: 180, def: 90,  unit: "min" },
+  setTime:        { min: 60, max: 480, def: 180, unit: "min" }
 };
 // How a value reads in a clamp note, e.g. "24 in" or "$500/cy".
 const showLimit = (lim, v) => (lim.show ? lim.show(v) : `${v} ${lim.unit}`);
@@ -734,7 +813,9 @@ function readInputs() {
     startMin: readStartMin(),
     pricePerCy: inputValue("price"),
     shortThresholdCy: inputValue("shortThreshold"),
-    shortLoadFee: inputValue("shortFee")
+    shortLoadFee: inputValue("shortFee"),
+    dischargeLimitMin: inputValue("dischargeLimit"),
+    setTimeMin: inputValue("setTime")
   };
 }
 
@@ -960,8 +1041,31 @@ function updateSlabDisplay(areaFt2, plan) {
     : "";
 }
 
+// Timing checks bar: one line per check, green ✓ or amber ⚠.
+function renderTimingChecks(plan, timing, inp) {
+  document.getElementById("timingChecks").hidden = false;
+  const limit = fmtMin(inp.dischargeLimitMin);
+  const d = document.getElementById("dischargeCheck");
+  const n = timing.overLoads.length, total = plan.loadCount;
+  d.className = "check " + (timing.dischargeOk ? "ok" : "warn");
+  d.textContent = timing.dischargeOk
+    ? `Every load is empty within ${limit} min of batching (longest ${fmtMin(timing.maxAgeMin)} min).`
+    : `${n.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} load${total > 1 ? "s" : ""} ` +
+      `take${n === 1 ? "s" : ""} longer than ${limit} min from batching to empty (up to ${fmtMin(timing.maxAgeMin)} min).`;
+
+  const s = document.getElementById("setCheck");
+  const margin = fmtMin(Math.abs(timing.setMarginMin));
+  s.className = "check " + (timing.setOk ? "ok" : "warn");
+  s.textContent = timing.setOk && margin === "0"
+    ? `Last truck arrives ${fmtClockFull(timing.lastArriveMin)}, just as the first load starts to set (${fmtClockFull(timing.setsAtMin)}).`
+    : timing.setOk
+    ? `Last truck arrives ${fmtClockFull(timing.lastArriveMin)}, ${margin} min before the first load starts to set (${fmtClockFull(timing.setsAtMin)}).`
+    : `Last truck arrives ${fmtClockFull(timing.lastArriveMin)}, ${margin} min after the first load starts to set (${fmtClockFull(timing.setsAtMin)}). Risk of a cold joint.`;
+}
+
 // Cards and order text when there is no slab to plan.
 function renderEmpty() {
+  document.getElementById("timingChecks").hidden = true;
   for (const id of ["orderVal", "loadsVal", "costVal", "trucksVal", "durationVal", "finishVal"]) {
     const el = document.getElementById(id);
     el.textContent = "—";
@@ -1020,7 +1124,9 @@ function render() {
 
   document.getElementById("orderText").textContent = orderText(plan, inp);
   document.getElementById("copyBtn").disabled = false;
-  drawTimeline(plan);
+  const timing = PourCalc.timingChecks(plan, inp.dischargeLimitMin, inp.setTimeMin);
+  renderTimingChecks(plan, timing, inp);
+  drawTimeline(plan, timing);
   return plan;
 }
 
@@ -1072,7 +1178,11 @@ copyBtn.addEventListener("click", async () => {
 
 // For checking validation case 2 from the console:
 //   setDrawnSlab([[40.25, -111.65], [40.251, -111.65], [40.251, -111.649], [40.25, -111.649]])
-window.setDrawnSlab = latlngs => { showSlab("drawn", latlngs); map.fitBounds(slab.polygon.getBounds()); return render(); };
+window.setDrawnSlab = latlngs => {
+  showSlab("drawn", latlngs);
+  map.fitBounds(slab.polygon.getBounds(), { animate: false });   // instant, so the map center is settled
+  return render();
+};
 
 setTypedSlab();   // opens with the default 40 x 60 ft slab (validation case 1)
 render();

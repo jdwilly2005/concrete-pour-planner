@@ -143,6 +143,8 @@ planning a slab pour and calling in the order to the batch plant.
     to set (9:40 AM)."
   - "⚠ Last truck arrives 8:20 AM, 40 min after the first load starts to
     set (7:40 AM). Risk of a cold joint."
+  - When the margin rounds to 0 min: "✓ Last truck arrives 8:20 AM,
+    just as the first load starts to set (8:20 AM)."
   The timing checks are not part of the order summary text.
 - On the timeline, a load over the discharge limit gets a red outline on
   its unloading bar and a ⚠ before its row label. A dashed red line
