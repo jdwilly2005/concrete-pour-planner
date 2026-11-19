@@ -64,3 +64,8 @@
 - **Asked:** Build it now.
 - **Changed:** index.html: `PourCalc.timingChecks` (pure; per-load batching-to-empty age vs the discharge limit, and last arrival vs the first load's set time; equal passes); a "Concrete timing" input group; a "Timing checks" bar with green ✓ / amber ⚠ lines, hidden with no slab; timeline marks over-limit loads with a ⚠ label and red outline, adds the batching-to-empty age to the unloading tooltip, and draws a dashed red "First load sets" line when it falls inside the chart. spec.md: added the "just as the first load starts to set" wording for a 0 min margin (found at the 7d boundary). Also made the setDrawnSlab() console helper zoom instantly. Results in 02_validation/feature2_timing_results.md.
 - **Worked?** Yes. Case 7a-7d match; cases 1-6 unchanged; layout checked at 1280 px and 375 px; no console messages.
+
+## 14. Publish (Step 7)
+- **Asked:** Help me publish.
+- **Changed:** `gh` isn't installed, so the repo was created on github.com (public, `concrete-pour-planner`, empty). Before the first push, rewrote the author/committer email on all 12 local commits from a personal address to the GitHub noreply address and set it as this repo's `user.email`, so no personal email is public. Added the `origin` remote and pushed `main`. GitHub Pages turned on in the repo settings (Deploy from a branch, main, / root).
+- **Worked?** Yes. Repo is public at https://github.com/jdwilly2005/concrete-pour-planner; site at https://jdwilly2005.github.io/concrete-pour-planner/.
