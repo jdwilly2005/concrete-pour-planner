@@ -23,12 +23,17 @@ planning a slab pour and calling in the order to the batch plant.
   - Drawn on the map: a "Draw slab" button, then click the corners and
     double-click (or click the first point) to finish. Corners can be
     dragged afterward. An outline needs at least 3 corners. If its edges
-    cross, show a warning that the area is not reliable. The map opens
-    centered on BYU campus
+    cross, show a warning that the area is not reliable. While drawing,
+    the button reads "Cancel" and Esc also cancels, which puts back the
+    slab that was there before. While a drawn outline is in use, a line
+    under the length and width boxes says so and gives its area. The
+    map opens centered on BYU campus
     (40.2518, -111.6493) at zoom 18. Or:
   - Typed: length and width (ft) for a rectangular slab, which is drawn
     on the map as a north-aligned rectangle of that size at the map
-    center. Number boxes, 1 to 1,000 ft each, defaults 40 and 60.
+    center (length runs east-west, width north-south). Changing a typed
+    size keeps the rectangle where it is. Number boxes, 1 to 1,000 ft
+    each, defaults 40 and 60.
     Dragging a corner of a typed rectangle turns it into a drawn outline.
   - A "Clear" button removes the slab.
 - Numeric inputs are number boxes. A value outside its range is clamped
@@ -80,7 +85,8 @@ planning a slab pour and calling in the order to the batch plant.
   and with one otherwise (7.5 cy), clock times to the nearest minute, and
   durations as "1 h 34 min" (or "10 min" under an hour).
 - If there is no slab, or its area is zero, show a hint to draw or type a
-  slab instead of results. A time past midnight is shown with "(+1 day)".
+  slab instead of results: the cards show a dash and the order box says
+  to draw or type a slab. A time past midnight is shown with "(+1 day)".
 
 ## Outputs
 - The slab drawn on the map with a label showing its area (ft^2) and

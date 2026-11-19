@@ -92,6 +92,22 @@
     padding: 4px 8px;
   }
   .slab-label::before { border-top-color: rgba(255, 255, 255, 0.95); }
+  .slab-handle {
+    background: #fff; border: 3px solid var(--accent); border-radius: 50%;
+    box-sizing: border-box; cursor: move;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+  .map-warning {
+    background: #FFF4E5; color: #8A4B00; font-size: 13px;
+    padding: 8px 14px; border-bottom: 1px solid #FFE0B2;
+  }
+  .map-warning[hidden] { display: none; }
+  .slab-source {
+    font-size: 12px; color: var(--muted); margin-top: 10px;
+    background: #F9FAFB; border-radius: 6px; padding: 6px 10px;
+  }
+  .slab-source:empty { display: none; }
+  .stat .value.empty { color: #CBD2D9; }
 
   /* Buttons */
   button {
@@ -195,7 +211,7 @@
 </head>
 <body>
 
-<div class="mockup-banner">In progress: the summary cards and order text are live (from the typed length and width). The map slab and truck timeline are still placeholders.</div>
+<div class="mockup-banner">In progress: the map, summary cards, and order text are live. The truck timeline is still a placeholder.</div>
 
 <header>
   <div class="logo">CP</div>
@@ -214,6 +230,7 @@
         <button id="clearBtn" type="button">Clear</button>
         <span class="hint" id="hint">Click Draw slab and click the corners, or type a length and width.</span>
       </div>
+      <div class="map-warning" id="mapWarning" hidden></div>
       <div id="map"></div>
     </section>
 
@@ -244,6 +261,7 @@
             <div class="range">0 to 15%</div>
           </div>
         </div>
+        <div class="slab-source" id="slabSource"></div>
       </div>
 
       <div class="field-group">
@@ -368,6 +386,33 @@ const PourCalc = (() => {
     return lengthFt * widthFt;
   }
 
+  // Corners [[lat, lon], ...] of a north-aligned rectangle centered on
+  // (lat, lon). Length runs east-west, width north-south.
+  function rectCorners(lat, lon, lengthFt, widthFt) {
+    const toDeg = 180 / Math.PI, M_PER_FT = 0.3048;
+    const dLat = (widthFt * M_PER_FT / 2) / EARTH_R * toDeg;
+    const dLon = (lengthFt * M_PER_FT / 2) / (EARTH_R * Math.cos(lat * Math.PI / 180)) * toDeg;
+    return [[lat - dLat, lon - dLon], [lat + dLat, lon - dLon],
+            [lat + dLat, lon + dLon], [lat - dLat, lon + dLon]];
+  }
+
+  // True if any two non-neighboring edges of the outline cross.
+  // (Over a slab-sized area, lat/lon can be treated as flat x/y.)
+  function edgesCross(latlngs) {
+    const n = latlngs.length;
+    if (n < 4) return false;
+    const orient = (a, b, c) => Math.sign((b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]));
+    const cross = (p1, p2, p3, p4) =>
+      orient(p1, p2, p3) * orient(p1, p2, p4) < 0 && orient(p3, p4, p1) * orient(p3, p4, p2) < 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue;        // first and last edges share a corner
+        if (cross(latlngs[i], latlngs[(i + 1) % n], latlngs[j], latlngs[(j + 1) % n])) return true;
+      }
+    }
+    return false;
+  }
+
   // Volumes from area (ft^2), thickness (in), and waste (%).
   function volumes(areaFt2, thicknessIn, wastePct) {
     const netCy = areaFt2 * thicknessIn / 12 / 27;
@@ -435,7 +480,8 @@ const PourCalc = (() => {
     };
   }
 
-  return { roundUpTo, polygonAreaFt2, rectAreaFt2, volumes, truckloads, unloadMinutes, planPour };
+  return { roundUpTo, polygonAreaFt2, rectAreaFt2, rectCorners, edgesCross,
+           volumes, truckloads, unloadMinutes, planPour };
 })();
 </script>
 
@@ -451,20 +497,6 @@ L.tileLayer(
     attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
   }
 ).addTo(map);
-
-// Placeholder 40 ft x 60 ft rectangle at the center, for the mockup only.
-// (Stage 3 replaces this with real drawing and sizing.)
-const halfLatPlaceholder = 0.000055;
-const halfLonPlaceholder = 0.000108;
-const placeholderSlab = L.polygon([
-  [CENTER[0] - halfLatPlaceholder, CENTER[1] - halfLonPlaceholder],
-  [CENTER[0] + halfLatPlaceholder, CENTER[1] - halfLonPlaceholder],
-  [CENTER[0] + halfLatPlaceholder, CENTER[1] + halfLonPlaceholder],
-  [CENTER[0] - halfLatPlaceholder, CENTER[1] + halfLonPlaceholder]
-], { color: "#E8590C", weight: 3, fillColor: "#E8590C", fillOpacity: 0.25 }).addTo(map);
-placeholderSlab.bindTooltip("2,400 ft² · 47.0 cy", {
-  permanent: true, direction: "top", offset: [0, -6], className: "slab-label"
-});
 
 // Leaflet measures its container when it is created. If the page was still
 // laying out (or hidden), shapes end up in the wrong place, so re-measure.
@@ -621,9 +653,8 @@ function readStartMin() {
 }
 
 function readInputs() {
-  const lengthFt = inputValue("length"), widthFt = inputValue("width");
   return {
-    areaFt2: PourCalc.rectAreaFt2(lengthFt, widthFt),
+    areaFt2: slabAreaFt2(),
     thicknessIn: inputValue("thickness"),
     wastePct: inputValue("waste"),
     capacityCy: inputValue("capacity"),
@@ -688,10 +719,191 @@ function orderText(plan, inp) {
   return parts.join(" ");
 }
 
+// =====================================================================
+// SLAB ON THE MAP: typed rectangle, drawn outline, dragging, clearing
+// =====================================================================
+const SLAB_STYLE = { color: "#E8590C", weight: 3, fillColor: "#E8590C", fillOpacity: 0.25 };
+const HANDLE_ICON = L.divIcon({ className: "slab-handle", iconSize: [14, 14] });
+const HINTS = {
+  none: "Click Draw slab and click the corners, or type a length and width.",
+  slab: "Drag a corner to reshape, click Draw slab for a new outline, or type a length and width.",
+  drawing: "Click each corner. Double-click or click the first point to finish.",
+  tooFew: "A slab needs at least 3 corners. Keep clicking corners, or press Esc to cancel."
+};
+
+// mode: "typed" (length x width rectangle), "drawn" (outline), or "none"
+const slab = { mode: "none", latlngs: [], polygon: null, handles: [] };
+const draw = { active: false, points: [], line: null, markers: [], saved: null };
+
+const drawBtn = document.getElementById("drawBtn");
+const setHint = text => { document.getElementById("hint").textContent = text; };
+
+function slabAreaFt2() {
+  if (slab.mode === "typed") return PourCalc.rectAreaFt2(inputValue("length"), inputValue("width"));
+  if (slab.mode === "drawn") return PourCalc.polygonAreaFt2(slab.latlngs);
+  return 0;
+}
+
+function removeSlabLayers() {
+  if (slab.polygon) map.removeLayer(slab.polygon);
+  slab.handles.forEach(h => map.removeLayer(h));
+  slab.polygon = null;
+  slab.handles = [];
+}
+
+// Put a slab on the map (or remove it with mode "none").
+function showSlab(mode, latlngs) {
+  removeSlabLayers();
+  slab.mode = mode;
+  slab.latlngs = latlngs.map(p => [p[0], p[1]]);
+  if (mode !== "none") {
+    slab.polygon = L.polygon(slab.latlngs, SLAB_STYLE).addTo(map);
+    slab.polygon.bindTooltip("", { permanent: true, direction: "top", offset: [0, -6], className: "slab-label" });
+    slab.handles = slab.latlngs.map((p, i) => {
+      const h = L.marker(p, { draggable: true, icon: HANDLE_ICON, keyboard: false }).addTo(map);
+      h.on("drag", e => {
+        const ll = e.target.getLatLng();
+        slab.latlngs[i] = [ll.lat, ll.lng];
+        slab.mode = "drawn";            // a dragged rectangle is now an outline
+        slab.polygon.setLatLngs(slab.latlngs);
+        render();
+      });
+      return h;
+    });
+  }
+  setHint(mode === "none" ? HINTS.none : HINTS.slab);
+}
+
+// Typed slab: a rectangle that stays where it is when resized, or goes at
+// the map center if there wasn't a typed rectangle before.
+function setTypedSlab() {
+  const c = slab.mode === "typed" && slab.polygon ? slab.polygon.getBounds().getCenter() : map.getCenter();
+  showSlab("typed", PourCalc.rectCorners(c.lat, c.lng, inputValue("length"), inputValue("width")));
+}
+
+// ---------- Drawing a new outline ----------
+function clearDrawPreview() {
+  if (draw.line) map.removeLayer(draw.line);
+  draw.markers.forEach(m => map.removeLayer(m));
+  draw.line = null;
+  draw.markers = [];
+}
+
+function updateDrawPreview() {
+  clearDrawPreview();
+  draw.line = L.polyline(draw.points, { color: "#E8590C", weight: 2, dashArray: "6 4" }).addTo(map);
+  draw.markers = draw.points.map((p, i) => {
+    const m = L.circleMarker(p, {
+      radius: i === 0 ? 7 : 5, color: "#E8590C", weight: 2,
+      fillColor: "#fff", fillOpacity: 1, bubblingMouseEvents: false
+    }).addTo(map);
+    if (i === 0) m.on("click", finishDrawing);     // click the first point to close
+    return m;
+  });
+}
+
+function startDrawing() {
+  draw.active = true;
+  draw.points = [];
+  draw.saved = { mode: slab.mode, latlngs: slab.latlngs.slice() };
+  removeSlabLayers();
+  slab.mode = "none";
+  map.doubleClickZoom.disable();
+  map.getContainer().style.cursor = "crosshair";
+  drawBtn.textContent = "Cancel";
+  render();
+  setHint(HINTS.drawing);
+}
+
+function stopDrawing() {
+  clearDrawPreview();
+  draw.active = false;
+  draw.points = [];
+  map.doubleClickZoom.enable();
+  map.getContainer().style.cursor = "";
+  drawBtn.textContent = "Draw slab";
+}
+
+function cancelDrawing() {
+  const saved = draw.saved;
+  stopDrawing();
+  showSlab(saved.mode, saved.latlngs);   // put back the slab from before
+  render();
+}
+
+function finishDrawing() {
+  if (!draw.active) return;
+  if (draw.points.length < 3) { setHint(HINTS.tooFew); return; }
+  const pts = draw.points.slice();
+  stopDrawing();
+  showSlab("drawn", pts);
+  render();
+}
+
+map.on("click", e => {
+  if (!draw.active) return;
+  // Ignore a click on top of the last corner (the clicks of a double-click).
+  if (draw.points.length) {
+    const last = map.latLngToContainerPoint(draw.points[draw.points.length - 1]);
+    if (last.distanceTo(e.containerPoint) < 6) return;
+  }
+  draw.points.push([e.latlng.lat, e.latlng.lng]);
+  updateDrawPreview();
+  if (draw.points.length < 3) setHint(HINTS.drawing);
+});
+map.on("dblclick", () => { if (draw.active) finishDrawing(); });
+
+drawBtn.addEventListener("click", () => (draw.active ? cancelDrawing() : startDrawing()));
+document.getElementById("clearBtn").addEventListener("click", () => {
+  if (draw.active) stopDrawing();
+  showSlab("none", []);
+  render();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && draw.active) cancelDrawing();
+});
+
+// Map label, crossing-edge warning, and the "using drawn outline" line.
+function updateSlabDisplay(areaFt2, plan) {
+  if (slab.polygon) {
+    slab.polygon.setTooltipContent(`${fmtNum(areaFt2, 0)} ft² · ${fmtNum(plan.orderCy, 1)} cy`);
+    // Anchor the label at the outline's north edge so it doesn't cover the slab.
+    const b = slab.polygon.getBounds();
+    slab.polygon.openTooltip([b.getNorth(), b.getCenter().lng]);
+  }
+  const warn = document.getElementById("mapWarning");
+  const crossing = slab.mode === "drawn" && PourCalc.edgesCross(slab.latlngs);
+  warn.hidden = !crossing;
+  warn.textContent = crossing ? "⚠ The outline's edges cross, so the area is not reliable. Drag a corner to fix it, or draw it again." : "";
+  document.getElementById("slabSource").textContent = slab.mode === "drawn"
+    ? `Using the drawn outline: ${fmtNum(areaFt2, 0)} ft². Type a length or width to switch back to a rectangle.`
+    : "";
+}
+
+// Cards and order text when there is no slab to plan.
+function renderEmpty() {
+  for (const id of ["orderVal", "loadsVal", "trucksVal", "durationVal", "finishVal"]) {
+    const el = document.getElementById(id);
+    el.textContent = "—";
+    el.classList.add("empty");
+  }
+  for (const id of ["orderDetail", "loadsDetail", "trucksDetail", "durationDetail", "finishDetail"]) {
+    document.getElementById(id).textContent = "";
+  }
+  document.getElementById("orderDetail").textContent = "No slab yet";
+  document.getElementById("orderText").textContent =
+    "Draw a slab on the map or type a length and width to see the order.";
+  document.getElementById("mapWarning").hidden = true;
+  document.getElementById("slabSource").textContent = "";
+}
+
 // ---------- Render ----------
 function render() {
   const inp = readInputs();
+  if (!(inp.areaFt2 > 0)) { renderEmpty(); return null; }
+  document.querySelectorAll(".stat .value.empty").forEach(el => el.classList.remove("empty"));
   const plan = PourCalc.planPour(inp);
+  updateSlabDisplay(inp.areaFt2, plan);
 
   document.getElementById("orderVal").innerHTML = `${fmtNum(plan.orderCy, 1)}<small>cy</small>`;
   document.getElementById("orderDetail").textContent =
@@ -723,6 +935,7 @@ for (const id of [...Object.keys(INPUT_LIMITS), "start"]) {
   const el = document.getElementById(id);
   el.addEventListener("input", () => {
     delete clampNotes[id];       // the user is editing this box again
+    if (id === "length" || id === "width") setTypedSlab();   // typing wins
     render();
   });
   el.addEventListener("change", () => {
@@ -736,6 +949,12 @@ for (const id of [...Object.keys(INPUT_LIMITS), "start"]) {
     render();
   });
 }
+
+// For checking validation case 2 from the console:
+//   setDrawnSlab([[40.25, -111.65], [40.251, -111.65], [40.251, -111.649], [40.25, -111.649]])
+window.setDrawnSlab = latlngs => { showSlab("drawn", latlngs); map.fitBounds(slab.polygon.getBounds()); return render(); };
+
+setTypedSlab();   // opens with the default 40 x 60 ft slab (validation case 1)
 render();
 </script>
 </body>
