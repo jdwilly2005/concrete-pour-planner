@@ -19,3 +19,8 @@
 - **Asked:** Plan the build stages.
 - **Changed:** Proposed 5 stages (layout mockup, calculations with typed slab, map drawing, truck timeline, polish and edge cases), each with what to check; added them to spec.md under ## Build stages after approval.
 - **Worked?** Yes. Nothing built yet.
+
+## 5. Build stage 1: layout mockup
+- **Asked:** Build stage 1 (layout mockup).
+- **Changed:** Created index.html: header, Leaflet 1.9.4 map with Esri World Imagery centered on BYU and a placeholder 40 x 60 ft slab with label, Draw slab / Clear buttons and hint, all inputs as number boxes with ranges, five summary cards, an SVG truck timeline drawn from hard-coded case 1 data (legend, finish line, faded segments after finish, hover/tap tooltips), and the order summary with a Copy button (not wired yet). A banner marks it as a mockup.
+- **Worked?** Yes, after fixes found in the browser: the slab outline was drawn off-screen because Leaflet measured the map before layout finished (added invalidateSize on load/resize); the Finish label and last axis time were clipped; "1 h 34 min" wrapped; on a phone the timeline scrolled sideways (now fits, with shorter row labels and 30-min ticks). No console errors on desktop or phone width.
